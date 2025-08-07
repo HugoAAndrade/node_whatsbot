@@ -93,24 +93,24 @@ async function gerarRespostaGemini(numero, novaMensagem) {
 client.on('message', async (message) => {
     console.log('📩 Mensagem recebida:', message.body);
 
-    if (message.fromMe) return; // evita loop
-    if (message.isGroupMsg) return; // ignora grupo
+    // 1. Ignorar mensagens do próprio bot
+    if (message.fromMe) return;
 
-    // Ignora mensagens antigas (> 1 min)
-    const agora = Date.now();
-    const idadeMsg = agora - message.timestamp * 1000;
-    if (idadeMsg > 60000) {
+    // 2. Ignorar mensagens antigas (mais de 10 segundos)
+    if (message.timestamp && message.timestamp < (Date.now() / 1000) - 10) {
         console.log('⏳ Ignorando mensagem antiga');
         return;
     }
 
-    const textoParaIA = message.body?.trim();
-    const numero = message.from;
-
-    if (!textoParaIA) {
-        await client.sendMessage(numero, 'Manda alguma coisa pra eu responder 😅');
+    // 3. Ignorar mensagens sem texto (áudio, imagem, etc.)
+    if (!message.body || typeof message.body !== 'string') {
+        console.log('📎 Ignorando mensagem não-texto');
         return;
     }
+
+    // Aqui segue o fluxo normal
+    const textoParaIA = message.body.trim();
+    const numero = message.from;
 
     try {
         const respostaIA = await gerarRespostaGemini(numero, textoParaIA);
@@ -120,6 +120,5 @@ client.on('message', async (message) => {
         await client.sendMessage(numero, 'Algo bugou aqui... tenta de novo 😬');
     }
 });
-
 
 client.initialize();
