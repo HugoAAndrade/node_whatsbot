@@ -27,15 +27,14 @@ client.on('ready', () => {
 const historicoPorUsuario = {};
 
 // Limita o histórico para os últimos 6 turnos
-function manterUltimosTurnos(historico, maxTurnos = 6) {
-    return historico.slice(-maxTurnos);
+function manterUltimosTurnos(historico) {
+    return historico.slice(-6);
 }
 
 // Função que chama a API Gemini com contexto
 async function gerarRespostaGemini(numero, novaMensagem) {
     const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
-    // Inicializa histórico se não existir
     if (!historicoPorUsuario[numero]) {
         historicoPorUsuario[numero] = [
             {
@@ -53,7 +52,6 @@ async function gerarRespostaGemini(numero, novaMensagem) {
         ];
     }
 
-    // Adiciona a nova mensagem do usuário ao histórico
     historicoPorUsuario[numero].push({
         role: 'user',
         parts: [{ text: novaMensagem }]
@@ -62,6 +60,8 @@ async function gerarRespostaGemini(numero, novaMensagem) {
     const body = {
         contents: manterUltimosTurnos(historicoPorUsuario[numero])
     };
+
+    console.log('📨 Enviando para Gemini:', JSON.stringify(body, null, 2));
 
     const response = await fetch(`${url}?key=${API_KEY}`, {
         method: 'POST',
@@ -76,11 +76,13 @@ async function gerarRespostaGemini(numero, novaMensagem) {
     }
 
     const data = await response.json();
+
+    console.log('📩 Resposta da Gemini:', JSON.stringify(data, null, 2));
+
     const resposta = data?.candidates?.[0]?.content?.parts?.[0]?.text || 'Não entendi sua pergunta.';
 
-    // Adiciona a resposta da IA ao histórico
     historicoPorUsuario[numero].push({
-        role: 'model',
+        role: 'assistant',
         parts: [{ text: resposta }]
     });
 
@@ -88,8 +90,19 @@ async function gerarRespostaGemini(numero, novaMensagem) {
 }
 
 // Escuta mensagens
-client.on('message_create', async (message) => {
-    if (message.fromMe) return; // ⛔ Ignora mensagens que você mesmo enviou
+client.on('message', async (message) => {
+    console.log('📩 Mensagem recebida:', message.body);
+
+    if (message.fromMe) return; // evita loop
+    if (message.isGroupMsg) return; // ignora grupo
+
+    // Ignora mensagens antigas (> 1 min)
+    const agora = Date.now();
+    const idadeMsg = agora - message.timestamp * 1000;
+    if (idadeMsg > 60000) {
+        console.log('⏳ Ignorando mensagem antiga');
+        return;
+    }
 
     const textoParaIA = message.body?.trim();
     const numero = message.from;
