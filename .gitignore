@@ -1,0 +1,14 @@
+node_modules/
+
+.env
+
+# Ignorar arquivos e pastas de cache/autenticação do wwebjs
+.wwebjs_auth/
+.wwebjs_cache/
+
+
+*.log
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
