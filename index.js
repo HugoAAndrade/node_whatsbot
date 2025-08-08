@@ -23,18 +23,21 @@ client.on('ready', () => {
     console.log('🤖 Bot WhatsApp + Gemini está online!');
 });
 
-// Histórico em memória por usuário
 const historicoPorUsuario = {};
+const usuariosAtivos = {};
 
 // Limita o histórico para os últimos 6 turnos
 function manterUltimosTurnos(historico) {
     return historico.slice(-6);
 }
 
+// Função para remover acentos e normalizar texto
+function removerAcentos(str) {
+    return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
 // Função que chama a API Gemini com contexto
 async function gerarRespostaGemini(numero, novaMensagem) {
-    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
-
     if (!historicoPorUsuario[numero]) {
         historicoPorUsuario[numero] = [
             {
@@ -63,7 +66,7 @@ async function gerarRespostaGemini(numero, novaMensagem) {
 
     console.log('📨 Enviando para Gemini:', JSON.stringify(body, null, 2));
 
-    const response = await fetch(`${url}?key=${API_KEY}`, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
@@ -93,31 +96,50 @@ async function gerarRespostaGemini(numero, novaMensagem) {
 client.on('message', async (message) => {
     console.log('📩 Mensagem recebida:', message.body);
 
-    // 1. Ignorar mensagens do próprio bot
+    const numero = message.from;
+    let texto = message.body?.trim().toLowerCase();
+
     if (message.fromMe) return;
 
-    // 2. Ignorar mensagens antigas (mais de 10 segundos)
     if (message.timestamp && message.timestamp < (Date.now() / 1000) - 10) {
         console.log('⏳ Ignorando mensagem antiga');
         return;
     }
 
-    // 3. Ignorar mensagens sem texto (áudio, imagem, etc.)
-    if (!message.body || typeof message.body !== 'string') {
+    if (!texto || typeof texto !== 'string') {
         console.log('📎 Ignorando mensagem não-texto');
         return;
     }
 
-    // Aqui segue o fluxo normal
-    const textoParaIA = message.body.trim();
-    const numero = message.from;
+    // Remove acentos do texto para comparação
+    texto = removerAcentos(texto);
 
+    // Comandos para ativar o bot
+    if (texto === 'ativar robo' || texto === 'ativar bot') {
+        usuariosAtivos[numero] = true;
+        await client.sendMessage(numero, '✅ Bot ativado! Pode mandar suas perguntas.');
+        return;
+    }
+
+    // Comandos para desativar o bot
+    if (texto === 'desativar robo' || texto === 'desativar bot') {
+        delete usuariosAtivos[numero];
+        await client.sendMessage(numero, '❌ Bot desativado! Para ativar, envie "ativar robo" ou "ativar bot".');
+        return;
+    }
+
+    // Se o bot não estiver ativado, não responde nada
+    if (!usuariosAtivos[numero]) {
+        return;
+    }
+
+    // Usuário está ativo, conversa com Gemini
     try {
-        const respostaIA = await gerarRespostaGemini(numero, textoParaIA);
+        const respostaIA = await gerarRespostaGemini(numero, texto);
         await client.sendMessage(numero, respostaIA);
     } catch (error) {
         console.error('❌ Erro ao gerar resposta:', error.message);
-        await client.sendMessage(numero, 'Algo bugou aqui... tenta de novo 😬');
+        await client.sendMessage(numero, '⚠️ Algo deu errado... tenta de novo 😬');
     }
 });
 
