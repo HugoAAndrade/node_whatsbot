@@ -93,12 +93,19 @@ async function gerarRespostaGemini(numero, novaMensagem) {
 }
 
 // Escuta mensagens
+const usuariosComMenuAberto = {};
+
 client.on('message', async (message) => {
     console.log('📩 Mensagem recebida:', message.body);
 
-    const numero = message.from;
-    let texto = message.body?.trim().toLowerCase();
+    // Ignorar mensagens de grupos
+    if (message.from.endsWith('@g.us')) {
+        console.log('🚫 Mensagem de grupo ignorada');
+        return;
+    }
 
+    const numero = message.from;
+    let textoRaw = message.body?.trim();
     if (message.fromMe) return;
 
     if (message.timestamp && message.timestamp < (Date.now() / 1000) - 10) {
@@ -106,27 +113,48 @@ client.on('message', async (message) => {
         return;
     }
 
-    if (!texto || typeof texto !== 'string') {
+    if (!textoRaw || typeof textoRaw !== 'string') {
         console.log('📎 Ignorando mensagem não-texto');
         return;
     }
 
-    // Remove acentos do texto para comparação
-    texto = removerAcentos(texto);
+    if (textoRaw.toLowerCase() === 'menu') {
+        const menuTexto =
+            `🤖 *Menu do Bot WhatsApp* 🤖
 
-    // Comandos para ativar o bot
-    if (texto === 'ativar robo' || texto === 'ativar bot') {
-        usuariosAtivos[numero] = true;
-        await client.sendMessage(numero, '✅ Bot ativado! Pode mandar suas perguntas.');
+✅ *1* - Ativar o bot
+❌ *2* - Desativar o bot
+
+➡️ *Digite o número da opção desejada para continuar.*
+
+*Dica:* Para abrir esse menu a qualquer momento, envie *menu*.
+`;
+        usuariosComMenuAberto[numero] = true;  // Marca menu aberto para esse usuário
+        await client.sendMessage(numero, menuTexto);
         return;
     }
 
-    // Comandos para desativar o bot
-    if (texto === 'desativar robo' || texto === 'desativar bot') {
-        delete usuariosAtivos[numero];
-        await client.sendMessage(numero, '❌ Bot desativado! Para ativar, envie "ativar robo" ou "ativar bot".');
+    // Só processa "1" ou "2" se o menu estiver aberto para esse usuário
+    if (usuariosComMenuAberto[numero]) {
+        if (textoRaw === '1') {
+            usuariosAtivos[numero] = true;
+            await client.sendMessage(numero, '✅ Bot ativado! Pode mandar suas perguntas.');
+            usuariosComMenuAberto[numero] = false; // Fecha o menu
+            return;
+        }
+        if (textoRaw === '2') {
+            delete usuariosAtivos[numero];
+            await client.sendMessage(numero, '❌ Bot desativado! Para ativar, envie "menu".');
+            usuariosComMenuAberto[numero] = false; // Fecha o menu
+            return;
+        }
+        // Se digitou outra coisa com menu aberto, não entende e manda mensagem padrão
+        await client.sendMessage(numero, '❓ Opção inválida. Por favor, digite *1* ou *2*.');
         return;
     }
+
+    // Remove acentos para outras comparações e uso com Gemini
+    const texto = removerAcentos(textoRaw.toLowerCase());
 
     // Se o bot não estiver ativado, não responde nada
     if (!usuariosAtivos[numero]) {
@@ -142,5 +170,6 @@ client.on('message', async (message) => {
         await client.sendMessage(numero, '⚠️ Algo deu errado... tenta de novo 😬');
     }
 });
+
 
 client.initialize();
