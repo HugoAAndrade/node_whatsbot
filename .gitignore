@@ -5,6 +5,8 @@ node_modules/
 # Ignorar arquivos e pastas de cache/autenticação do wwebjs
 .wwebjs_auth/
 .wwebjs_cache/
+.bot*
+bot*
 
 
 *.log
