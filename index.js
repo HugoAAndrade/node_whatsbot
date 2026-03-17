@@ -1,17 +1,23 @@
-require('dotenv').config({ quiet: true });
+require('dotenv').config({ silent: true });
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
+// API Key da Gemini
 const API_KEY = process.env.GEMINI_API_KEY;
 if (!API_KEY) {
     console.error('❌ API Key da Gemini não encontrada.');
     process.exit(1);
 }
 
+// Inicializa o WhatsApp Client com Puppeteer customizado
 const client = new Client({
-    authStrategy: new LocalAuth()
+    authStrategy: new LocalAuth(),
+    puppeteer: {
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    }
 });
 
 client.on('qr', (qr) => {
@@ -23,20 +29,22 @@ client.on('ready', () => {
     console.log('🤖 Bot WhatsApp + Gemini está online!');
 });
 
+// Histórico e controle de usuários
 const historicoPorUsuario = {};
 const usuariosAtivos = {};
+const usuariosComMenuAberto = {};
 
 // Limita o histórico para os últimos 6 turnos
 function manterUltimosTurnos(historico) {
     return historico.slice(-6);
 }
 
-// Função para remover acentos e normalizar texto
+// Remove acentos e normaliza texto
 function removerAcentos(str) {
     return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
-// Função que chama a API Gemini com contexto
+// Chama a API Gemini
 async function gerarRespostaGemini(numero, novaMensagem) {
     if (!historicoPorUsuario[numero]) {
         historicoPorUsuario[numero] = [
@@ -66,7 +74,7 @@ async function gerarRespostaGemini(numero, novaMensagem) {
 
     console.log('📨 Enviando para Gemini:', JSON.stringify(body, null, 2));
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${API_KEY}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
@@ -79,9 +87,6 @@ async function gerarRespostaGemini(numero, novaMensagem) {
     }
 
     const data = await response.json();
-
-    console.log('📩 Resposta da Gemini:', JSON.stringify(data, null, 2));
-
     const resposta = data?.candidates?.[0]?.content?.parts?.[0]?.text || 'Não entendi sua pergunta.';
 
     historicoPorUsuario[numero].push({
@@ -93,34 +98,20 @@ async function gerarRespostaGemini(numero, novaMensagem) {
 }
 
 // Escuta mensagens
-const usuariosComMenuAberto = {};
-
 client.on('message', async (message) => {
-    console.log('📩 Mensagem recebida:', message.body);
-
-    // Ignorar mensagens de grupos
-    if (message.from.endsWith('@g.us')) {
-        console.log('🚫 Mensagem de grupo ignorada');
-        return;
-    }
-
     const numero = message.from;
-    let textoRaw = message.body?.trim();
+    const textoRaw = message.body?.trim();
+
     if (message.fromMe) return;
+    if (!textoRaw || typeof textoRaw !== 'string') return;
+    if (message.from.endsWith('@g.us')) return; // Ignora grupos
+    if (message.timestamp && message.timestamp < (Date.now() / 1000) - 10) return; // Mensagens antigas
 
-    if (message.timestamp && message.timestamp < (Date.now() / 1000) - 10) {
-        console.log('⏳ Ignorando mensagem antiga');
-        return;
-    }
-
-    if (!textoRaw || typeof textoRaw !== 'string') {
-        console.log('📎 Ignorando mensagem não-texto');
-        return;
-    }
-
-    if (textoRaw.toLowerCase() === 'menu') {
+    // Menu do bot - verificação robusta
+    const textoNormalizado = removerAcentos(textoRaw).toLowerCase().trim();
+    if (textoNormalizado === 'menu') {
         const menuTexto =
-            `🤖 *Menu do Bot WhatsApp* 🤖
+`🤖 *Menu do Bot WhatsApp* 🤖
 
 ✅ *1* - Ativar o bot
 ❌ *2* - Desativar o bot
@@ -128,39 +119,38 @@ client.on('message', async (message) => {
 ➡️ *Digite o número da opção desejada para continuar.*
 
 *Dica:* Para abrir esse menu a qualquer momento, envie *menu*.`;
-        usuariosComMenuAberto[numero] = true;  // Marca menu aberto para esse usuário
-        await client.sendMessage(numero, menuTexto);
+
+        usuariosComMenuAberto[numero] = true;
+        try {
+            await client.sendMessage(numero, menuTexto);
+        } catch (error) {
+            console.error('❌ Erro ao enviar menu:', error.message);
+        }
         return;
     }
 
-    // Só processa "1" ou "2" se o menu estiver aberto para esse usuário
+    // Processa opções do menu
     if (usuariosComMenuAberto[numero]) {
         if (textoRaw === '1') {
             usuariosAtivos[numero] = true;
             await client.sendMessage(numero, '✅ Bot ativado! Pode mandar suas perguntas.');
-            usuariosComMenuAberto[numero] = false; // Fecha o menu
-            return;
-        }
-        if (textoRaw === '2') {
+        } else if (textoRaw === '2') {
             delete usuariosAtivos[numero];
             await client.sendMessage(numero, '❌ Bot desativado! Para ativar, envie "menu".');
-            usuariosComMenuAberto[numero] = false; // Fecha o menu
+        } else {
+            await client.sendMessage(numero, '❓ Opção inválida. Por favor, digite *1* ou *2*.');
             return;
         }
-        // Se digitou outra coisa com menu aberto, não entende e manda mensagem padrão
-        await client.sendMessage(numero, '❓ Opção inválida. Por favor, digite *1* ou *2*.');
+        usuariosComMenuAberto[numero] = false;
         return;
     }
 
-    // Remove acentos para outras comparações e uso com Gemini
+    // Se o bot não estiver ativo para esse usuário, não responde
+    if (!usuariosAtivos[numero]) return;
+
+    // Remove acentos e conversa com Gemini
     const texto = removerAcentos(textoRaw.toLowerCase());
 
-    // Se o bot não estiver ativado, não responde nada
-    if (!usuariosAtivos[numero]) {
-        return;
-    }
-
-    // Usuário está ativo, conversa com Gemini
     try {
         const respostaIA = await gerarRespostaGemini(numero, texto);
         await client.sendMessage(numero, respostaIA);
@@ -169,6 +159,5 @@ client.on('message', async (message) => {
         await client.sendMessage(numero, '⚠️ Algo deu errado... tenta de novo 😬');
     }
 });
-
 
 client.initialize();
