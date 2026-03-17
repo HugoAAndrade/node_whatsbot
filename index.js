@@ -200,7 +200,7 @@ async function gerarRespostaGemini(numero, novaMensagem) {
     const resposta = data?.candidates?.[0]?.content?.parts?.[0]?.text || 'Não entendi sua pergunta.';
 
     historicoPorUsuario[numero].push({
-        role: 'assistant',
+        role: 'model',
         parts: [{ text: resposta }]
     });
 

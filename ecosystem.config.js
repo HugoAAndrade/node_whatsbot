@@ -4,6 +4,7 @@ module.exports = {
             name: 'node-whatsbot',
             script: 'index.js',
             cwd: '/home/hugo.andrade/node_whatsbot',
+            exec_mode: 'fork',
             instances: 1,
             autorestart: true,
             watch: false,
