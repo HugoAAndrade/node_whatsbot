@@ -127,8 +127,7 @@ client.on('message', async (message) => {
 
 ➡️ *Digite o número da opção desejada para continuar.*
 
-*Dica:* Para abrir esse menu a qualquer momento, envie *menu*.
-`;
+*Dica:* Para abrir esse menu a qualquer momento, envie *menu*.`;
         usuariosComMenuAberto[numero] = true;  // Marca menu aberto para esse usuário
         await client.sendMessage(numero, menuTexto);
         return;
